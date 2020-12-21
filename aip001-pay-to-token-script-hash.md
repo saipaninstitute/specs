@@ -9,13 +9,12 @@ Instead of storing tokens in P2PKH outputs, under this specification, token wall
 Unlock script (scriptSig without redeemScript):
 ```
 <signature>
-<arbitrary metadata>
 ```
 
 redeemScript:
 ```
 <token_type>     // token_type (from the SLP spec), minimally encoded (as required by consensus)
-OP_2DROP         // drop the version and one additional item from the input script, the metadata
+OP_DROP          // drop the version
 <pubkey>         // public key of this address
 OP_CHECKSIG      // verify the signature
 ```
@@ -36,14 +35,40 @@ If a user tries to send money to an SLP address which is P2PKH and not P2SH (i.e
 
 Wallet developers are encouraged to only use P2TSH outputs for token outputs, but continue to use P2PKH outputs for non-token outputs so traditional non-token wallets can still interface the satoshis of the wallet as if it was a normal wallet.
 
-### SLP Metadata
+## Alternatives
+
+### Using `OP_2DROP` instead of `OP_DROP`
+
+A previous proposal suggested to use `OP_2DROP` instead of `OP_DROP`, allowing to place arbitrary metadata in the scriptSig.
+
+The reasoning is the following:
 
 SLP uses the (one) OP_RETURN output to store its metadata. Additional OP_RETURN outputs are allowed but non-standard, so they will not be broadcast on the network. This makes adding additional metadata, like receipts, messages, memos and trade offers difficult.
 
-Under this specification, token wallets will be able to add metadata in the scriptSig of transaction inputs, after the signature, and they will simply be dropped directly in the script along with the token version using OP_2DROP.
+By using OP_2DROP instead of OP_DROP, token wallets will be able to add metadata in the scriptSig of transaction inputs, after the signature, and they will simply be dropped directly in the script along with the token version using OP_2DROP.
 
-## Drawbacks
+#### Drawbacks
 
-The drawbacks of this proposal is that it makes the transactions maleable by a third party, e.g. a miner, and could therefore mess up a chain of valid transactions. However, for most use-cases, this can be avoided by using pre-consensus on transactions, and for most other use-cases where non-maleability is important, specific covenants can be used which don't suffer maleability issues.
+The drawbacks of this approach is that it makes the transactions malleable by a third party, especially if they’re not broadcast yet, and could therefore mess up a chain of valid transactions. Since currently P2PKH transactions are non-malleable, we would rather have P2TSH outputs behave exactly the same as P2PKH outputs to avoid unnecessary complexity. 
 
-If this does turn out to be an issue, the metadata could be removed by replacing OP_2DROP with OP_DROP, however, the benefits of metadata seem to outweigh the drawbacks.
+### Using a public key hash instead of a public key in the redeem script
+
+Instead of the above script, it was suggested to use the following redeemScript:
+
+```
+<token_type>     // token_type (from the SLP spec), minimally encoded (as required by consensus)
+OP_DROP          // drop the version
+OP_DUP           // duplicate the public key
+OP_HASH160       // calculate the input public key hash
+<pubkey hash>    // public key of the 
+OP_EQUALVERIFY   // verify input public key hash is the wallet's public key hash 
+OP_CHECKSIG      // verify the signature
+```
+
+This would allow wallets to compute the P2TSH from the P2PKH address.
+
+However, it has two drawbacks which the authors deemed sufficient to disqualify it from the standard:
+- It increases the input size by 23 bytes, which makes token transactions significantly more expensive especially for transactions with many inputs, making it less likely to be implemented by wallet developers.
+- Going the reverse, from P2TSH to P2PKH is not possible. This is quite confusing for users; so we might just as well not have any conversion at all.
+
+It also somewhat defeats the purpose of this proposal, which is to keep the two addresses as separate as possible. Also, token wallets will watch ordinary P2PKH addresses anyway, so if one were to send tokens to an ordinary P2PKH address, the recipient would still be able to receive them.
